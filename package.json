@@ -1,0 +1,11 @@
+{
+  "name": "crawlimg",
+  "version": "1.0.0",
+  "description": "download and save img from a url",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "ltl",
+  "license": "ISC"
+}
