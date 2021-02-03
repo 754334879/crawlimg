@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 let request = require('request');
 let iconv = require('iconv-lite');
 let fs = require('fs');
@@ -21,7 +23,11 @@ if (!urlPattern.test(startPage)) {
     console.warn('start page pattern error, except a URL, start with http or https');
     return;
 }
-request({ url: startPage, encoding: null, timeout: 30 * 1000 }, function (error, response, body) {
+request({
+    url: startPage,
+    encoding: null,
+    timeout: 30 * 1000
+}, function (error, response, body) {
     if (error) {
         console.log('error', error);
         return;
@@ -62,7 +68,9 @@ function crateFolder() {
         fs.access(folder, (err) => {
             if (err) {
                 console.log('folder not exist, so create');
-                fs.mkdir(folder, { recursive: true }, resolve);
+                fs.mkdir(folder, {
+                    recursive: true
+                }, resolve);
             } else {
                 resolve();
                 console.log('folder exist');
@@ -72,13 +80,14 @@ function crateFolder() {
 }
 
 async function getImages(urls) {
-    if(!urls || urls.length == 0) {
+    if (!urls || urls.length == 0) {
         console.log('fail to parse urls');
         return;
     }
     await crateFolder();
     // 3个一组进行请求
-    let groups = [], group = [];
+    let groups = [],
+        group = [];
     urls.forEach(item => {
         if (group.length < 4) {
             group.push(item);
@@ -95,26 +104,31 @@ async function getImages(urls) {
     statis(1, urls.length);
 }
 
-function getImageBatch(imgs=[], groupIndex) {
+function getImageBatch(imgs = [], groupIndex) {
     let promises = imgs.map((item, index) => {
         return _getImage(item, `${groupIndex}${index}`);
     })
     return Promise.all(promises);
 }
 
-// function _getImage(img, index) {
-
-// }
+// function _getImage(img, index) { }
 
 function _getImage(img, index) {
-    let filePath = url.parse(img).path;
-    let { base: fileName, ext } = path.parse(filePath);
+    let filePath = url
+        .parse(img)
+        .path;
+    let {base: fileName, ext} = path.parse(filePath);
     // fileName = index + fileName; // 没什么用
     if (!ext) {
         fileName += '.gif'; //TODO
     }
     return new Promise((resolve) => {
-        request({ url: img, method: 'GET', encoding: null, timeout: 30 * 1000 }) //, proxy: 'http://127.0.0.1:8888'
+        request({
+            url: img,
+            method: 'GET',
+            encoding: null,
+            timeout: 30 * 1000
+        }) //, proxy: 'http://127.0.0.1:8888'
             .on('error', function (err) {
                 console.log('request err', img, err);
                 statis(3);
@@ -140,11 +154,15 @@ function _getImage(img, index) {
 }
 
 /**
- * 
+ *
  * @param {*} label: 0-开始 1-结束 2-成功+1 3-失败+1 4-保存成功+1
- * @param {*} length 
+ * @param {*} length
  */
-let startTS = 0, endTS = 0, succ = 0, fail = 0, saveCount =0;
+let startTS = 0,
+    endTS = 0,
+    succ = 0,
+    fail = 0,
+    saveCount = 0;
 function statis(label) {
     switch (label) {
         case 0:
