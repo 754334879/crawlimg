@@ -4,8 +4,17 @@
   "description": "download and save img from a url",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "crawler": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:754334879/crawlimg.git"
   },
   "author": "ltl",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "iconv-lite": "^0.6.2",
+    "request": "^2.88.2"
+  }
 }
