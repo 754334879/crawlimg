@@ -1,6 +1,6 @@
 {
   "name": "crawlimg",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "download and save img from a url",
   "main": "index.js",
   "scripts": {
