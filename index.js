@@ -106,19 +106,29 @@ async function getImages(urls) {
 
 function getImageBatch(imgs = [], groupIndex) {
     let promises = imgs.map((item, index) => {
-        return _getImage(item, `${groupIndex}${index}`);
+        return _getImage(item, `${getPrefix(groupIndex)}${index}_`);
     })
     return Promise.all(promises);
 }
 
 // function _getImage(img, index) { }
 
-function _getImage(img, index) {
+function getPrefix(index) {
+    if (index < 10) {
+        return '00' + index;
+    }
+    if (index < 100) {
+        return '0' + index;
+    }
+    return index;
+}
+
+function _getImage(img, prefix) {
     let filePath = url
         .parse(img)
         .path;
-    let {base: fileName, ext} = path.parse(filePath);
-    // fileName = index + fileName; // 没什么用
+    let { base: fileName, ext } = path.parse(filePath);
+    fileName = prefix + fileName;
     if (!ext) {
         fileName += '.gif'; //TODO
     }
