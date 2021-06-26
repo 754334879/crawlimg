@@ -15,6 +15,8 @@ process.on('uncaughtException', (err, origin) => {
     console.log('Unhandled exception at:', origin, 'reason:', err);
 });
 // ================
+let tryCount = 0, maxTryCount = 3;
+let retryImgs = [], totalImgCount = 0;
 
 let urlPattern = /https?:\/\/.*/;
 let startPage = process.argv[2];
@@ -22,6 +24,12 @@ let folder = process.argv[3] || process.cwd();
 if (!urlPattern.test(startPage)) {
     console.warn('start page pattern error, except a URL, start with http or https');
     return;
+}
+let descript = {
+    title: '',
+    url: startPage,
+    count: 0,
+    statis: ''
 }
 request({
     url: startPage,
@@ -34,8 +42,8 @@ request({
     }
     if (response.statusCode === 200) {
         body = iconv.decode(body, 'gb2312');
-        let title = getTitle(body);
-        folder += `/${title}`;
+        descript.title = getTitle(body);
+        folder += `/${descript.title.replace('/', '')}`;
         let imgsURL = parseHTMLStr(body);
         getImages(imgsURL);
     }
@@ -63,16 +71,16 @@ function parseHTMLStr(htmlStr) {
     return result;
 }
 
-function crateFolder() {
-    return new Promise(resolve => {
+function checkAndCreateFolder() {
+    return new Promise((resolve, reject) => {
         fs.access(folder, (err) => {
             if (err) {
-                console.log('folder not exist, so create');
+                console.log('folder not exist, so create', folder);
                 fs.mkdir(folder, {
                     recursive: true
                 }, resolve);
             } else {
-                resolve();
+                reject('folder exist. so skip.');
                 console.log('folder exist');
             }
         })
@@ -82,85 +90,121 @@ function crateFolder() {
 async function getImages(urls) {
     if (!urls || urls.length == 0) {
         console.log('fail to parse urls');
-        return;
+        throw "fail to parse urls";
     }
-    await crateFolder();
-    // 3个一组进行请求
+    descript.count = urls.length;
+    await checkAndCreateFolder();
+    urls = indexImg(urls);
+    statis(0);
+    _getImages(urls);
+}
+
+async function _getImages(urls) {
+    // 4个一组进行请求
     let groups = [],
         group = [];
     urls.forEach(item => {
-        if (group.length < 4) {
-            group.push(item);
-        } else {
+        group.push(item);
+        if (group.length >= 4) {
             groups.push(group);
             group = [];
         }
     });
-    statis(0);
-    let len = Math.max(groups.length, 2)
-    for (let i = 0; i < len; i++) {
-        await getImageBatch(groups[i], i);
+    group.length > 0 && groups.push(group);
+    for (let i = 0; i < groups.length - 1; i++) {
+        await getImageBatch(groups[i]);
     }
-    statis(1, urls.length);
+    afterOneLoop();
 }
 
-function getImageBatch(imgs = [], groupIndex) {
+function afterOneLoop() {
+    console.log('check retry', tryCount, retryImgs.length);
+    if (retryImgs.length == 0 || tryCount >= maxTryCount) {
+        // 结束
+        createREADME();
+        return statis(1);
+    }
+    tryCount += 1;
+    _getImages(retryImgs.splice(0, retryImgs.length)); //需要传递，并清空 retryImgs
+}
+
+function indexImg(urls) {
+    let length = String(urls.length).length; //数量级 100-3位
+    let repeat = (str, times) => {
+        if (times == 0) {
+            return '';
+        }
+        return Array(times).join(',').split(',').reduce((s) => s + String(str), '');
+    };
+    let padIndex = (index, length) => {
+        return repeat('0', length - index.length) + index;
+    }
+    return urls.map((url, index) => {
+        return {
+            prefix: padIndex(String(index), length) + '_',
+            url
+        }
+    })
+}
+
+function getImageBatch(imgs = []) {
     let promises = imgs.map((item, index) => {
-        return _getImage(item, `${getPrefix(groupIndex)}${index}_`);
+        return _getImage(item);
     })
     return Promise.all(promises);
 }
 
-// function _getImage(img, index) { }
-
-function getPrefix(index) {
-    if (index < 10) {
-        return '00' + index;
-    }
-    if (index < 100) {
-        return '0' + index;
-    }
-    return index;
-}
-
-function _getImage(img, prefix) {
+function _getImage(img) {
+    // return Promise.resolve();
     let filePath = url
-        .parse(img)
+        .parse(img.url)
         .path;
     let { base: fileName, ext } = path.parse(filePath);
-    fileName = prefix + fileName;
+    fileName = img.prefix + fileName;
     if (!ext) {
         fileName += '.gif'; //TODO
     }
     return new Promise((resolve) => {
         request({
-            url: img,
+            url: img.url,
             method: 'GET',
             encoding: null,
             timeout: 30 * 1000
         }) //, proxy: 'http://127.0.0.1:8888'
             .on('error', function (err) {
-                console.log('request err', img, err);
+                console.log('request err', img.url, err);
                 statis(3);
+                retryImgs.push(img);
                 resolve();
             })
             .on('response', function (resp) {
                 if (resp.statusCode == 200) {
                     statis(2);
-                    console.log('get iamge succ', img);
+                    console.log('get iamge succ', img.url);
                 } else {
                     statis(3);
-                    console.log('get iamge fail', img);
+                    console.log('get iamge fail', img.url);
                     resolve();
                 }
             })
             .on('end', function (data) {
-                console.log('save iamge succ', img);
+                console.log('save iamge succ', img.url);
                 statis(4);
                 resolve();
             })
             .pipe(fs.createWriteStream(path.join(folder, fileName)));
     })
+}
+
+function createREADME() {
+    let { title, url, count, statis } = descript;
+    let content = [];
+    content.push(`## ${title}`);
+    content.push(`[页面](${url})`);
+    content.push(`图片数量：\`${count}\``);
+    content.push(statis);
+    content.push(new Date().toLocaleString());
+    fs.createWriteStream(require('path').join(folder, 'README.md')).write(content.join('\n\n'));
 }
 
 /**
@@ -182,7 +226,8 @@ function statis(label) {
         case 1:
             endTS = Date.now();
             let dur = ((endTS - startTS) / 1000).toFixed(1);
-            console.log(`汇总：耗时${dur}s; 获取图片数量${succ + fail}, 成功${succ}, 失败${fail}; 保存完成${saveCount}`);
+            descript.statis = `汇总：耗时${dur}s; 图片总数量${descript.count}; 保存完成${saveCount}; 获取图片次数${succ + fail}, 成功${succ}, 失败${fail}`;
+            console.log(descript.statis);
             break;
         case 2:
             succ += 1;
