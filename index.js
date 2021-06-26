@@ -80,7 +80,7 @@ function checkAndCreateFolder() {
                     recursive: true
                 }, resolve);
             } else {
-                reject('folder exist. so skip.');
+                resolve('folder exist. so skip');
                 console.log('folder exist');
             }
         })
@@ -111,7 +111,7 @@ async function _getImages(urls) {
         }
     });
     group.length > 0 && groups.push(group);
-    for (let i = 0; i < groups.length - 1; i++) {
+    for (let i = 0; i < groups.length; i++) {
         await getImageBatch(groups[i]);
     }
     afterOneLoop();
@@ -121,8 +121,9 @@ function afterOneLoop() {
     console.log('check retry', tryCount, retryImgs.length);
     if (retryImgs.length == 0 || tryCount >= maxTryCount) {
         // 结束
+        statis(1);
         createREADME();
-        return statis(1);
+        return;
     }
     tryCount += 1;
     _getImages(retryImgs.splice(0, retryImgs.length)); //需要传递，并清空 retryImgs
@@ -154,8 +155,7 @@ function getImageBatch(imgs = []) {
     return Promise.all(promises);
 }
 
-function _getImage(img) {
-    // return Promise.resolve();
+async function _getImage(img) {
     let filePath = url
         .parse(img.url)
         .path;
@@ -163,6 +163,14 @@ function _getImage(img) {
     fileName = img.prefix + fileName;
     if (!ext) {
         fileName += '.gif'; //TODO
+    }
+    fileName = path.join(folder, fileName);
+
+    let hasImg = await checkIsExist(fileName);
+    if (hasImg) {
+        console.log('has image and skip', img.url);
+        statis(5);
+        return;
     }
     return new Promise((resolve) => {
         request({
@@ -180,19 +188,31 @@ function _getImage(img) {
             .on('response', function (resp) {
                 if (resp.statusCode == 200) {
                     statis(2);
-                    console.log('get iamge succ', img.url);
+                    console.log('get image succ', img.url);
                 } else {
                     statis(3);
-                    console.log('get iamge fail', img.url);
+                    console.log('get image fail', img.url);
                     resolve();
                 }
             })
             .on('end', function (data) {
-                console.log('save iamge succ', img.url);
+                console.log('save image succ', img.url);
                 statis(4);
                 resolve();
             })
-            .pipe(fs.createWriteStream(path.join(folder, fileName)));
+            .pipe(fs.createWriteStream(fileName));
+    })
+}
+
+function checkIsExist(fileName) {
+    return new Promise((resolve, reject) => {
+        fs.access(fileName, (err) => {
+            if (err) {
+                resolve(false);
+            } else {
+                resolve(true);
+            }
+        })
     })
 }
 
@@ -216,7 +236,8 @@ let startTS = 0,
     endTS = 0,
     succ = 0,
     fail = 0,
-    saveCount = 0;
+    saveCount = 0,
+    existCount = 0;
 function statis(label) {
     switch (label) {
         case 0:
@@ -226,7 +247,7 @@ function statis(label) {
         case 1:
             endTS = Date.now();
             let dur = ((endTS - startTS) / 1000).toFixed(1);
-            descript.statis = `汇总：耗时${dur}s; 图片总数量${descript.count}; 保存完成${saveCount}; 获取图片次数${succ + fail}, 成功${succ}, 失败${fail}`;
+            descript.statis = `汇总：耗时${dur}s; 图片总数量${descript.count}; 已存在数量${existCount}; 保存完成${saveCount}; 获取图片次数${succ + fail}, 成功${succ}, 失败${fail}`;
             console.log(descript.statis);
             break;
         case 2:
@@ -237,6 +258,9 @@ function statis(label) {
             break;
         case 4:
             saveCount += 1;
+            break;
+        case 5:
+            existCount += 1;
             break;
         default:
             break;
