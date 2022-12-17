@@ -15,39 +15,52 @@ process.on('uncaughtException', (err, origin) => {
     console.log('Unhandled exception at:', origin, 'reason:', err);
 });
 // ================
-let tryCount = 0, maxTryCount = 3;
-let retryImgs = [], totalImgCount = 0;
+let tryCount = 0,
+    maxTryCount = 3;
+let retryImgs = [],
+    totalImgCount = 0;
 
 let urlPattern = /https?:\/\/.*/;
 let startPage = process.argv[2];
 let folder = process.argv[3] || process.cwd();
 if (!urlPattern.test(startPage)) {
     console.warn('start page pattern error, except a URL, start with http or https');
-    return;
+    // return;
+    process.exit(1);
 }
+
 let descript = {
     title: '',
     url: startPage,
     count: 0,
-    statis: ''
+    statis: '',
+};
+let rmexist = false; // 是否删掉重复的图片
+request(
+    {
+        url: startPage,
+        encoding: null,
+        timeout: 30 * 1000,
+    },
+    function (error, response, body) {
+        if (error) {
+            console.log('error', error);
+            return;
+        }
+        if (response.statusCode === 200) {
+            let bodyStr = ab2str(body);
+            descript.title = getTitle(bodyStr);
+            folder += `/${descript.title.replace('/', '')}`;
+            let imgsURL = parseHTMLStr(bodyStr);
+            getImages(imgsURL);
+        }
+    }
+);
+
+function ab2str(input, outputEncoding = 'utf8') {
+    const decoder = new TextDecoder(outputEncoding);
+    return decoder.decode(input);
 }
-request({
-    url: startPage,
-    encoding: null,
-    timeout: 30 * 1000
-}, function (error, response, body) {
-    if (error) {
-        console.log('error', error);
-        return;
-    }
-    if (response.statusCode === 200) {
-        body = iconv.decode(body, 'gb2312');
-        descript.title = getTitle(body);
-        folder += `/${descript.title.replace('/', '')}`;
-        let imgsURL = parseHTMLStr(body);
-        getImages(imgsURL);
-    }
-});
 
 function getTitle(htmlStr) {
     let reg = /<title>([^<]*)<\/title>/;
@@ -63,11 +76,11 @@ function parseHTMLStr(htmlStr) {
     htmlStr.replace(reg, function (match, url) {
         result.push(url);
         return match;
-    })
+    });
     htmlStr.replace(reg2, function (match, url) {
         result.push(url);
         return match;
-    })
+    });
     return result;
 }
 
@@ -76,21 +89,25 @@ function checkAndCreateFolder() {
         fs.access(folder, (err) => {
             if (err) {
                 console.log('folder not exist, so create', folder);
-                fs.mkdir(folder, {
-                    recursive: true
-                }, resolve);
+                fs.mkdir(
+                    folder,
+                    {
+                        recursive: true,
+                    },
+                    resolve
+                );
             } else {
                 resolve('folder exist. so skip');
                 console.log('folder exist');
             }
-        })
-    })
+        });
+    });
 }
 
 async function getImages(urls) {
     if (!urls || urls.length == 0) {
         console.log('fail to parse urls');
-        throw "fail to parse urls";
+        throw 'fail to parse urls';
     }
     descript.count = urls.length;
     await checkAndCreateFolder();
@@ -103,7 +120,7 @@ async function _getImages(urls) {
     // 4个一组进行请求
     let groups = [],
         group = [];
-    urls.forEach(item => {
+    urls.forEach((item) => {
         group.push(item);
         if (group.length >= 4) {
             groups.push(group);
@@ -126,6 +143,7 @@ function afterOneLoop() {
         return;
     }
     tryCount += 1;
+    rmexist = true;
     _getImages(retryImgs.splice(0, retryImgs.length)); //需要传递，并清空 retryImgs
 }
 
@@ -135,30 +153,31 @@ function indexImg(urls) {
         if (times == 0) {
             return '';
         }
-        return Array(times).join(',').split(',').reduce((s) => s + String(str), '');
+        return Array(times)
+            .join(',')
+            .split(',')
+            .reduce((s) => s + String(str), '');
     };
     let padIndex = (index, length) => {
         return repeat('0', length - index.length) + index;
-    }
+    };
     return urls.map((url, index) => {
         return {
             prefix: padIndex(String(index), length) + '_',
-            url
-        }
-    })
+            url,
+        };
+    });
 }
 
 function getImageBatch(imgs = []) {
     let promises = imgs.map((item, index) => {
         return _getImage(item);
-    })
+    });
     return Promise.all(promises);
 }
 
 async function _getImage(img) {
-    let filePath = url
-        .parse(img.url)
-        .path;
+    let filePath = url.parse(img.url).path;
     let { base: fileName, ext } = path.parse(filePath);
     fileName = img.prefix + fileName;
     if (!ext) {
@@ -168,16 +187,21 @@ async function _getImage(img) {
 
     let hasImg = await checkIsExist(fileName);
     if (hasImg) {
-        console.log('has image and skip', img.url);
-        statis(5);
-        return;
+        if (!rmexist) {
+            console.log('has image and skip', img.url);
+            statis(5);
+            return;
+        } else {
+            console.log('has image and delete', img.url);
+            await clearFile(fileName);
+        }
     }
     return new Promise((resolve) => {
         request({
             url: img.url,
             method: 'GET',
             encoding: null,
-            timeout: 30 * 1000
+            timeout: 30 * 1000,
         }) //, proxy: 'http://127.0.0.1:8888'
             .on('error', function (err) {
                 console.log('request err', img.url, err);
@@ -201,7 +225,7 @@ async function _getImage(img) {
                 resolve();
             })
             .pipe(fs.createWriteStream(fileName));
-    })
+    });
 }
 
 function checkIsExist(fileName) {
@@ -212,8 +236,19 @@ function checkIsExist(fileName) {
             } else {
                 resolve(true);
             }
-        })
-    })
+        });
+    });
+}
+function clearFile(fileName) {
+    return new Promise((resolve, reject) => {
+        fs.rm(fileName, (err) => {
+            if (err) {
+                reject();
+            } else {
+                resolve();
+            }
+        });
+    });
 }
 
 function createREADME() {
@@ -247,7 +282,11 @@ function statis(label) {
         case 1:
             endTS = Date.now();
             let dur = ((endTS - startTS) / 1000).toFixed(1);
-            descript.statis = `汇总：耗时${dur}s; 图片总数量${descript.count}; 已存在数量${existCount}; 保存完成${saveCount}; 获取图片次数${succ + fail}, 成功${succ}, 失败${fail}`;
+            descript.statis = `汇总：耗时${dur}s; 图片总数量${
+                descript.count
+            }; 已存在数量${existCount}; 保存完成${saveCount}; 获取图片次数${
+                succ + fail
+            }, 成功${succ}, 失败${fail}`;
             console.log(descript.statis);
             break;
         case 2:
